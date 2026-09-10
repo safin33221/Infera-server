@@ -12,6 +12,6 @@ export default defineConfig({
     // Use Neon's direct URL for Prisma CLI commands. DATABASE_URL remains the
     // pooled runtime URL; the fallback keeps the local setup unchanged.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    url: env('DATABASE_URL'),
+    url: env('DATABASE_URL_UNPOOLED'),
   },
 });
