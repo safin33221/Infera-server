@@ -3,20 +3,6 @@ import { PrismaService } from '../../database/prisma.service';
 import { Prisma } from '@prisma/client';
 import { UpdateUserDto } from './dto/update-user.dto';
 
-const safeUserSelect = {
-  id: true,
-  email: true,
-  username: true,
-  name: true,
-  avatar: true,
-  bio: true,
-  role: true,
-  status: true,
-  emailVerified: true,
-  createdAt: true,
-  updatedAt: true,
-} satisfies Prisma.UserSelect;
-
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -48,12 +34,14 @@ export class UsersService {
     return !!user;
   }
 
-  async findById(id: string) {
+  async findById(userId: string) {
     return this.prisma.user.findUnique({
       where: {
-        id,
+        id: userId,
       },
-      select: safeUserSelect,
+      include: {
+        professionalProfile: true,
+      },
     });
   }
 
@@ -77,11 +65,26 @@ export class UsersService {
   }
 
   async updateUser(userId: string, dto: UpdateUserDto) {
+    const { professionalProfile, ...userData } = dto;
+
     const user = await this.prisma.user.update({
       where: {
         id: userId,
       },
-      data: dto,
+
+      data: {
+        ...userData,
+
+        ...(professionalProfile && {
+          professionalProfile: {
+            upsert: {
+              create: professionalProfile,
+              update: professionalProfile,
+            },
+          },
+        }),
+      },
+
       select: {
         id: true,
         email: true,
@@ -89,9 +92,22 @@ export class UsersService {
         name: true,
         avatar: true,
         bio: true,
+        professionalProfile: {
+          select: {
+            id: true,
+            jobTitle: true,
+            company: true,
+            industry: true,
+            location: true,
+            yearsOfExperience: true,
+            linkedinUrl: true,
+            updatedAt: true,
+          },
+        },
         updatedAt: true,
       },
     });
+
     return user;
   }
 }

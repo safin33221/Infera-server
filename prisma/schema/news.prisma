@@ -91,7 +91,6 @@ model News {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   newsInteractions NewsInteraction[]
-  recommendations  UserRecommendation[]
 
   @@index([processingStatus])
   @@index([categoryId])
@@ -113,4 +112,20 @@ model NewsTopic {
 
   @@id([newsId, topicId])
   @@index([topicId])
+}
+
+model Topic {
+  id   String @id @default(cuid())
+  name String @unique
+  slug String @unique
+
+  parentId String?
+  parent   Topic?  @relation("TopicHierarchy", fields: [parentId], references: [id])
+  children Topic[] @relation("TopicHierarchy")
+  news     NewsTopic[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
 }

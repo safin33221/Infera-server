@@ -437,17 +437,10 @@ export class NewsService {
     const [user, interactions] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
-        include: {
-          profile: {
-            include: {
-              careerField: true,
-              currentRole: true,
-              careerGoals: { include: { careerGoal: true } },
-            },
+        select: {
+          professionalProfile: {
+            select: { jobTitle: true, company: true, industry: true },
           },
-          topicInterests: true,
-          skillInterests: { include: { skill: true } },
-          careerInterests: { include: { careerField: true } },
         },
       }),
       this.prisma.newsInteraction.findMany({
@@ -479,14 +472,10 @@ export class NewsService {
       ['VIEW', 'CLICK', 'LIKE', 'SAVE', 'SHARE'].includes(type),
     );
 
-    const followedTopicIds = user?.topicInterests.map(({ topicId }) => topicId) ?? [];
-    const skillTerms = user?.skillInterests.map(({ skill }) => skill.name) ?? [];
-    const careerInterestTerms =
-      user?.careerInterests.map(({ careerField }) => careerField.name) ?? [];
     const careerTerms = [
-      user?.profile?.careerField?.name,
-      user?.profile?.currentRole?.name,
-      ...(user?.profile?.careerGoals.map(({ careerGoal }) => careerGoal.name) ?? []),
+      user?.professionalProfile?.jobTitle,
+      user?.professionalProfile?.company,
+      user?.professionalProfile?.industry,
     ].filter((term): term is string => Boolean(term));
 
     const behaviorTopicIds = new Set(
@@ -495,12 +484,7 @@ export class NewsService {
     const behaviorCategoryIds = new Set(positiveInteractions.map(({ news }) => news.categoryId));
     const behaviorSourceIds = new Set(positiveInteractions.map(({ news }) => news.sourceId));
 
-    const hasPersonalizationSignals =
-      careerTerms.length > 0 ||
-      careerInterestTerms.length > 0 ||
-      skillTerms.length > 0 ||
-      followedTopicIds.length > 0 ||
-      positiveInteractions.length > 0;
+    const hasPersonalizationSignals = careerTerms.length > 0 || positiveInteractions.length > 0;
 
     const candidateLimit = Math.min(Math.max(page * limit * 3, 60), 200);
     const include = {
@@ -528,14 +512,8 @@ export class NewsService {
       return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
     }
 
-    const textTerms = [...new Set([...careerTerms, ...careerInterestTerms, ...skillTerms])].slice(
-      0,
-      20,
-    );
+    const textTerms = [...new Set(careerTerms)].slice(0, 20);
     const candidateFilters: Prisma.NewsWhereInput[] = [
-      ...(followedTopicIds.length > 0
-        ? [{ topics: { some: { topicId: { in: followedTopicIds } } } }]
-        : []),
       ...textTerms.map((term) => ({
         OR: [
           { title: { contains: term, mode: 'insensitive' as const } },
@@ -570,9 +548,6 @@ export class NewsService {
         news,
         score: this.calculateNewsScore(news, {
           careerTerms,
-          careerInterestTerms,
-          skillTerms,
-          followedTopicIds: new Set(followedTopicIds),
           behaviorTopicIds,
           behaviorCategoryIds,
           behaviorSourceIds,
@@ -597,9 +572,6 @@ export class NewsService {
     news: PersonalizedNews,
     signals: {
       careerTerms: string[];
-      careerInterestTerms: string[];
-      skillTerms: string[];
-      followedTopicIds: Set<string>;
       behaviorTopicIds: Set<string>;
       behaviorCategoryIds: Set<string>;
       behaviorSourceIds: Set<string>;
@@ -612,9 +584,6 @@ export class NewsService {
     let score = 0;
 
     if (matchesText(signals.careerTerms)) score += 30;
-    if (topicIds.some((topicId) => signals.followedTopicIds.has(topicId))) score += 25;
-    if (matchesText(signals.skillTerms)) score += 20;
-    if (matchesText(signals.careerInterestTerms)) score += 15;
     if (
       topicIds.some((topicId) => signals.behaviorTopicIds.has(topicId)) ||
       signals.behaviorCategoryIds.has(news.categoryId) ||
