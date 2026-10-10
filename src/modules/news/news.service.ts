@@ -11,6 +11,7 @@ import { PrismaService } from '@/database/prisma.service';
 import { NewsQueryDto } from './dto/news-query.dto';
 
 import { CollectedArticle, RssCollector } from './collectors/rss.collector';
+import { ArticleContentExtractor } from './collectors/article-content.extractor';
 import { KeywordTopicExtractor } from './extractors/keyword-topic.extractor';
 import { NewsRankingService } from './services/news-ranking.service';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -47,6 +48,7 @@ export class NewsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rssCollector: RssCollector,
+    private readonly articleContentExtractor: ArticleContentExtractor,
     private readonly newsRankingService: NewsRankingService,
     private readonly topicExtractor: KeywordTopicExtractor,
 
@@ -208,12 +210,11 @@ export class NewsService {
     sourceId: string,
     categoryId: string,
   ): Promise<boolean> {
+    const feedContent = this.cleanArticleText(article.content);
+    const content = feedContent ?? (await this.articleContentExtractor.extract(article.sourceUrl));
+    const summary = this.cleanArticleText(article.summary) ?? this.createSummary(content);
     try {
-      const topicSlugs = this.topicExtractor.extract(
-        article.title,
-        article.summary,
-        article.content,
-      );
+      const topicSlugs = this.topicExtractor.extract(article.title, summary, content);
 
       const topics =
         topicSlugs.length > 0
@@ -232,8 +233,8 @@ export class NewsService {
       await this.prisma.news.create({
         data: {
           title: article.title,
-          summary: article.summary,
-          content: article.content,
+          summary,
+          content,
           sourceUrl: article.sourceUrl,
           imageUrl: article.imageUrl,
           publishedAt: article.publishedAt,
@@ -256,14 +257,19 @@ export class NewsService {
       if (this.isDuplicateSourceUrlError(error)) {
         this.logger.debug(`Duplicate article: ${article.sourceUrl}`);
 
-        if (article.imageUrl) {
+        if (article.imageUrl || content) {
           await this.prisma.news.updateMany({
             where: {
               sourceUrl: article.sourceUrl,
-              imageUrl: null,
+              OR: [
+                ...(article.imageUrl ? [{ imageUrl: null }] : []),
+                ...(content ? [{ content: null }, { content: '' }] : []),
+              ],
             },
             data: {
-              imageUrl: article.imageUrl,
+              ...(article.imageUrl ? { imageUrl: article.imageUrl } : {}),
+              ...(content ? { content } : {}),
+              ...(summary ? { summary } : {}),
             },
           });
         }
@@ -273,6 +279,26 @@ export class NewsService {
 
       throw error;
     }
+  }
+
+  private cleanArticleText(value: string | null): string | null {
+    const cleaned = value
+      ?.replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;|&#160;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned || null;
+  }
+
+  private createSummary(content: string | null): string | null {
+    if (!content) return null;
+    const firstParagraph = content.split(/\n\s*\n/)[0]?.trim() ?? content;
+    return firstParagraph.length > 300
+      ? `${firstParagraph.slice(0, 297).trimEnd()}...`
+      : firstParagraph;
   }
 
   async getForYou(query: NewsQueryDto) {
