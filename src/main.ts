@@ -22,6 +22,6 @@ async function bootstrap() {
 
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
-  await app.listen(3000, '0.0.0.0');
+  await app.listen(5000, '0.0.0.0');
 }
 bootstrap();
